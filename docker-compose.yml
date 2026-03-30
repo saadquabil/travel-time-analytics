@@ -1,0 +1,53 @@
+services:
+
+  # ── MongoDB ─────────────────────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: nyc-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: nyc_traffic
+
+  # ── Seed : CSV → MongoDB (one-shot) ────────────────────
+  seed:
+    build: ./seed
+    container_name: nyc-seed
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      - mongo
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nyc_traffic
+      CSV_PATH: /data/traffic.csv
+
+  # ── Backend : API Python ────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: nyc-backend
+    ports:
+      - "8765:8765"
+    depends_on:
+      mongo:
+        condition: service_started
+      seed:
+        condition: service_completed_successfully
+    environment:
+      MONGO_URI: mongodb://mongo:27017/nyc_traffic
+      PORT: 8765
+
+  # ── Frontend : Nginx ────────────────────────────────────
+  frontend:
+    build: ./frontend
+    container_name: nyc-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:

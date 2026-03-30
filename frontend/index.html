@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>NYC · Boulevard Traffic</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Barlow+Condensed:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0a0c10;--panel:#0f1319;--panel2:#151c27;--panel3:#1a2233;
+  --b1:#1d2840;--b2:#243050;
+  --txt:#dde6f5;--sub:#4a607a;--dim:#1e2d42;
+  --free:#22d07a;
+  --normal:#a3e635;
+  --slow:#f5c518;
+  --heavy:#ff7a2b;
+  --critical:#ff3b3b;
+  --acc:#3ecfff;
+  --fh:'Barlow Condensed',sans-serif;
+  --fm:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--fm);overflow:hidden}
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--b2)}
+
+/* ── LAYOUT ── */
+#shell{display:grid;grid-template-rows:50px 1fr;grid-template-columns:270px 1fr 280px;height:100vh}
+#bar{grid-column:1/-1;background:var(--panel);border-bottom:1px solid var(--b1);display:flex;align-items:center;z-index:100}
+#left{background:var(--panel);border-right:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden}
+#mid{position:relative;overflow:hidden}
+#right{background:var(--panel);border-left:1px solid var(--b1);display:flex;flex-direction:column;overflow:hidden}
+
+/* ── TOPBAR ── */
+.logo{padding:0 18px;border-right:1px solid var(--b1);height:100%;display:flex;align-items:center;gap:10px;flex-shrink:0}
+.logo-icon{width:28px;height:28px}
+.logo-txt{font-family:var(--fh);font-weight:800;font-size:17px;letter-spacing:4px}
+.logo-txt em{font-style:normal;color:var(--acc)}
+.kpi{padding:0 14px;border-right:1px solid var(--b1);height:100%;display:flex;flex-direction:column;justify-content:center;flex-shrink:0}
+.kl{font-size:7px;letter-spacing:2px;text-transform:uppercase;color:var(--sub);margin-bottom:3px}
+.kv{font-family:var(--fh);font-size:20px;font-weight:700;line-height:1}
+.kv.acc{color:var(--acc)}.kv.cr{color:var(--critical)}.kv.fr{color:var(--free)}.kv.sl{color:var(--slow)}
+.sp{flex:1}
+.bar-ctrl{padding:0 14px;display:flex;align-items:center;gap:10px}
+.filter-row{display:flex;gap:3px}
+.fb{font-family:var(--fm);font-size:8px;letter-spacing:1px;text-transform:uppercase;padding:4px 10px;border:1px solid var(--b1);background:var(--panel2);color:var(--sub);border-radius:3px;cursor:pointer;transition:all .12s}
+.fb:hover{border-color:var(--acc);color:var(--acc)}
+.fb.on{color:#000;font-weight:600;border-color:transparent}
+.fb[data-s="all"].on{background:var(--acc);color:#000}
+.fb[data-s="free"].on{background:var(--free)}
+.fb[data-s="normal"].on{background:var(--normal)}
+.fb[data-s="slow"].on{background:var(--slow)}
+.fb[data-s="heavy"].on{background:var(--heavy);color:#fff}
+.fb[data-s="critical"].on{background:var(--critical);color:#fff}
+select{font-family:var(--fm);font-size:9px;background:var(--panel2);border:1px solid var(--b1);color:var(--txt);border-radius:3px;padding:4px 9px;outline:none;cursor:pointer}
+select:focus{border-color:var(--acc)}
+
+/* ── LEFT ── */
+.sec{padding:10px 12px;border-bottom:1px solid var(--b1);flex-shrink:0}
+.sh{font-family:var(--fh);font-size:9px;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:var(--sub);display:flex;align-items:center;gap:7px;margin-bottom:8px}
+.sh::after{content:'';flex:1;height:1px;background:var(--b1)}
+
+/* threshold cards */
+.tg{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.tc{background:var(--panel2);border:1px solid var(--b1);border-radius:4px;padding:7px 9px;position:relative;overflow:hidden;cursor:pointer;transition:all .12s}
+.tc:hover{border-color:var(--b2)}
+.tc::before{content:'';position:absolute;inset:0 auto 0 0;width:3px}
+.tc.free::before{background:var(--free)}.tc.normal::before{background:var(--normal)}
+.tc.slow::before{background:var(--slow)}.tc.heavy::before{background:var(--heavy)}
+.tc.critical::before{background:var(--critical)}
+.tc.dimmed{opacity:.35}
+.tc-label{font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sub);margin-bottom:4px;display:flex;align-items:center;gap:5px}
+.tc-dot{width:7px;height:7px;border-radius:50%}
+.tc-val{font-family:var(--fh);font-size:26px;font-weight:700;line-height:1}
+.tc.free .tc-val{color:var(--free)}.tc.normal .tc-val{color:var(--normal)}
+.tc.slow .tc-val{color:var(--slow)}.tc.heavy .tc-val{color:var(--heavy)}.tc.critical .tc-val{color:var(--critical)}
+.tc-range{font-size:7px;color:var(--sub);margin-top:2px}
+
+/* threshold scale */
+.ts-bar{height:6px;border-radius:3px;margin:6px 0;background:linear-gradient(to right,var(--free),var(--normal),var(--slow),var(--heavy),var(--critical));opacity:.8}
+.ts-labels{display:flex;justify-content:space-between;font-size:7px;color:var(--sub)}
+
+/* boulevard list */
+#seg-list{flex:1;overflow-y:auto}
+.sl-item{padding:8px 12px;border-bottom:1px solid var(--b1);cursor:pointer;transition:background .1s;display:grid;grid-template-columns:6px 1fr auto;gap:8px;align-items:center}
+.sl-item:hover{background:var(--panel2)}
+.sl-item.active{background:rgba(62,207,255,.05);border-left:2px solid var(--acc)}
+.sl-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sl-name{font-size:9px;color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.sl-sub{font-size:7px;color:var(--sub);margin-top:1px;display:flex;gap:6px}
+.sl-right{text-align:right;flex-shrink:0}
+.sl-tt{font-size:10px;font-weight:600;font-family:var(--fh)}
+.sl-status{font-size:7px;text-transform:uppercase;letter-spacing:1px}
+.sl-bar-row{grid-column:2/-1;height:1.5px;background:var(--b1);border-radius:1px;margin-top:2px;overflow:hidden}
+.sl-bar-fill{height:100%;border-radius:1px}
+
+/* ── MAP ── */
+#map{width:100%;height:100%}
+.leaflet-container{background:#0a0c10!important}
+.leaflet-tile-pane{filter:brightness(.7) contrast(1.1) saturate(.6) hue-rotate(200deg)}
+.leaflet-control-zoom a{background:var(--panel2)!important;border-color:var(--b2)!important;color:var(--txt)!important;font-family:var(--fm)!important}
+.leaflet-tooltip{background:rgba(10,12,16,.97)!important;border:1px solid var(--b2)!important;border-radius:5px!important;color:var(--txt)!important;font-family:var(--fm)!important;font-size:10px!important;padding:12px 15px!important;box-shadow:0 8px 32px rgba(0,0,0,.7)!important;max-width:300px!important;pointer-events:none!important}
+.leaflet-tooltip::before,.leaflet-tooltip-top::before,.leaflet-tooltip-bottom::before{display:none!important}
+.map-badge{position:absolute;z-index:900;background:rgba(10,12,16,.88);border:1px solid var(--b1);border-radius:5px;backdrop-filter:blur(10px)}
+#mb-tl{top:12px;left:12px;padding:10px 15px;pointer-events:none}
+#mb-tl h2{font-family:var(--fh);font-size:12px;font-weight:700;letter-spacing:4px}
+#mb-tl p{font-size:7px;letter-spacing:2px;text-transform:uppercase;color:var(--sub);margin-top:3px}
+#mb-legend{bottom:36px;left:12px;padding:11px 13px;min-width:190px}
+#mb-sort{top:12px;right:12px;padding:7px 10px;display:flex;flex-direction:column;gap:4px}
+
+/* ── RIGHT ── */
+.ch-wrap{height:130px;padding:7px}
+.det-wrap{flex:1;overflow-y:auto}
+.no-sel{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;opacity:.3}
+.ns-ico{font-size:24px}
+.ns-txt{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--sub)}
+.dh{padding:11px 12px;border-bottom:1px solid var(--b1)}
+.d-name{font-family:var(--fh);font-size:16px;font-weight:700;letter-spacing:.5px;line-height:1.3;margin-bottom:6px}
+.d-tags{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.tag{font-size:7px;padding:2px 7px;border-radius:2px;border:1px solid var(--b1);background:var(--panel2);letter-spacing:.5px;text-transform:uppercase}
+.tag.a{color:var(--acc);border-color:rgba(62,207,255,.3)}
+.d-metric{padding:6px 12px;border-bottom:1px solid var(--b1);display:flex;justify-content:space-between;align-items:center}
+.dm-l{font-size:8px;color:var(--sub);letter-spacing:.5px}
+.dm-v{font-size:11px;font-weight:600}
+.d-bar{height:2px;background:var(--b1);margin:0 12px 4px}
+.d-bar-f{height:100%;border-radius:1px}
+.tt-histo{padding:8px 12px;border-bottom:1px solid var(--b1)}
+.tt-h-title{font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sub);margin-bottom:7px}
+.tt-range-bar{height:8px;border-radius:4px;background:var(--panel2);position:relative;margin-bottom:5px;overflow:hidden}
+.tt-range-fill{position:absolute;top:0;bottom:0;border-radius:4px}
+.tt-range-labels{display:flex;justify-content:space-between;font-size:7px;color:var(--sub)}
+
+/* ── LOADER ── */
+#loader{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;transition:opacity .4s}
+.ld-logo{font-family:var(--fh);font-size:56px;font-weight:800;letter-spacing:8px;margin-bottom:5px}
+.ld-logo em{font-style:normal;color:var(--acc)}
+.ld-sub{font-size:8px;letter-spacing:3px;text-transform:uppercase;color:var(--sub);margin-bottom:38px}
+.ld-ring{width:30px;height:30px;border:1.5px solid var(--b2);border-top-color:var(--acc);border-radius:50%;animation:spin .65s linear infinite}
+.ld-msg{margin-top:14px;font-size:8px;letter-spacing:2px;color:var(--sub);text-transform:uppercase}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* pulse animation for critical segments */
+@keyframes pulse-line{0%,100%{opacity:1}50%{opacity:.55}}
+</style>
+</head>
+<body>
+
+<div id="loader">
+  <div class="ld-logo">NYC<em>·</em>BLVD</div>
+  <div class="ld-sub">Boulevard Traffic Monitor</div>
+  <div class="ld-ring"></div>
+  <div class="ld-msg" id="ld-msg">Connecting…</div>
+</div>
+
+<div id="shell">
+
+  <!-- ── TOPBAR ── -->
+  <div id="bar">
+    <div class="logo">
+      <svg class="logo-icon" viewBox="0 0 28 28" fill="none">
+        <rect x="3" y="12" width="22" height="4" rx="2" fill="none" stroke="#3ecfff" stroke-width="1.2"/>
+        <circle cx="7"  cy="14" r="2" fill="#ff3b3b"/>
+        <circle cx="14" cy="14" r="2" fill="#f5c518"/>
+        <circle cx="21" cy="14" r="2" fill="#22d07a"/>
+        <line x1="14" y1="3"  x2="14" y2="10" stroke="#3ecfff" stroke-width="1" opacity=".5"/>
+        <line x1="14" y1="18" x2="14" y2="25" stroke="#3ecfff" stroke-width="1" opacity=".5"/>
+      </svg>
+      <div class="logo-txt">NYC<em>·</em>BLVD</div>
+    </div>
+    <div class="kpi"><div class="kl">Segments</div><div class="kv acc" id="kv-total">—</div></div>
+    <div class="kpi"><div class="kl">Critical</div><div class="kv cr" id="kv-crit">—</div></div>
+    <div class="kpi"><div class="kl">Fluide</div><div class="kv fr" id="kv-free">—</div></div>
+    <div class="kpi"><div class="kl">Avg TT</div><div class="kv sl" id="kv-tt">—</div></div>
+    <div class="sp"></div>
+    <div class="bar-ctrl">
+      <div style="font-size:7px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sub)">FILTRE</div>
+      <div class="filter-row" id="filter-btns">
+        <button class="fb on"  data-s="all">Tout</button>
+        <button class="fb"     data-s="free">Fluide</button>
+        <button class="fb"     data-s="normal">Normal</button>
+        <button class="fb"     data-s="slow">Lent</button>
+        <button class="fb"     data-s="heavy">Chargé</button>
+        <button class="fb"     data-s="critical">Critique</button>
+      </div>
+      <select id="sort-sel">
+        <option value="tt_desc">TT ↑ (+ lent)</option>
+        <option value="tt_asc">TT ↓ (+ rapide)</option>
+        <option value="speed_desc">Vitesse ↑</option>
+        <option value="name_asc">Nom A→Z</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ── LEFT PANEL ── -->
+  <div id="left">
+
+    <!-- threshold summary -->
+    <div class="sec">
+      <div class="sh">Seuils Travel Time</div>
+      <div class="tg" id="threshold-cards">
+        <!-- filled by JS -->
+      </div>
+      <div class="ts-bar"></div>
+      <div class="ts-labels">
+        <span>0s</span><span>200s</span><span>400s</span><span>700s</span><span>1200s</span><span>∞</span>
+      </div>
+    </div>
+
+    <!-- segment list header -->
+    <div class="sec" style="padding:8px 12px 6px">
+      <div class="sh" style="margin-bottom:0">Segments <span style="color:var(--acc);margin-left:4px" id="list-count">—</span></div>
+    </div>
+
+    <div id="seg-list"><!-- filled by JS --></div>
+  </div>
+
+  <!-- ── MAP ── -->
+  <div id="mid">
+    <div id="map"></div>
+
+    <div class="map-badge" id="mb-tl">
+      <h2>MANHATTAN · BOULEVARDS</h2>
+      <p id="mb-sub">NYC DOT traffic — travel time analysis</p>
+    </div>
+
+    <div class="map-badge" id="mb-legend">
+      <div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:var(--sub);margin-bottom:8px">Travel Time (couleur + épaisseur)</div>
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:8px">
+          <div style="width:28px;height:3.5px;background:var(--free);border-radius:2px"></div>
+          <span style="color:var(--free);min-width:54px">Fluide</span>
+          <span style="color:var(--sub)">&lt; 200s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:8px">
+          <div style="width:28px;height:4px;background:var(--normal);border-radius:2px"></div>
+          <span style="color:var(--normal);min-width:54px">Normal</span>
+          <span style="color:var(--sub)">200–400s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:8px">
+          <div style="width:28px;height:4.5px;background:var(--slow);border-radius:2px"></div>
+          <span style="color:var(--slow);min-width:54px">Lent</span>
+          <span style="color:var(--sub)">400–700s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:8px">
+          <div style="width:28px;height:5.5px;background:var(--heavy);border-radius:2px"></div>
+          <span style="color:var(--heavy);min-width:54px">Chargé</span>
+          <span style="color:var(--sub)">700–1200s</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;font-size:8px">
+          <div style="width:28px;height:6.5px;background:var(--critical);border-radius:2px"></div>
+          <span style="color:var(--critical);min-width:54px">Critique</span>
+          <span style="color:var(--sub)">&gt; 1200s</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div id="right">
+    <div class="sec"><div class="sh">Répartition</div><div class="ch-wrap"><canvas id="pie-chart"></canvas></div></div>
+    <div class="sec"><div class="sh">Travel Time Moyen par Segment</div><div class="ch-wrap" style="height:150px"><canvas id="bar-chart"></canvas></div></div>
+    <div class="sec" style="padding:8px 12px 5px"><div class="sh" style="margin:0">Détail Segment</div></div>
+    <div class="det-wrap" id="det">
+      <div class="no-sel">
+        <div class="ns-ico">—</div>
+        <div class="ns-txt">Cliquer un segment</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+'use strict';
+
+const STATUS_COLORS = {
+  free:     'var(--free)',
+  normal:   'var(--normal)',
+  slow:     'var(--slow)',
+  heavy:    'var(--heavy)',
+  critical: 'var(--critical)',
+};
+const STATUS_FR = {
+  free:'Fluide', normal:'Normal', slow:'Lent', heavy:'Chargé', critical:'Critique'
+};
+const STATUS_RANGES = {
+  free:'< 200s', normal:'200–400s', slow:'400–700s', heavy:'700–1200s', critical:'> 1200s'
+};
+
+let map, layers = {};        // lid → Leaflet polyline
+let allSegs = [], metaData = {};
+let activeFilter = 'all', activeSeg = null;
+let pieChart = null, barChart = null;
+
+/* ════ BOOT ════ */
+window.addEventListener('DOMContentLoaded', async () => {
+  setMsg('Initialisation carte…'); initMap();
+  setMsg('Chargement données…');
+  try {
+    await Promise.all([loadMeta(), loadSegments()]);
+  } catch(e) {
+    setMsg('ERREUR — lancez: python3 run.py'); return;
+  }
+  setMsg('Rendu…');
+  drawAllSegments();
+  buildThresholdCards();
+  renderList();
+  buildCharts();
+  updateKPIs();
+  hideLodaer();
+});
+
+function setMsg(m){ document.getElementById('ld-msg').textContent = m; }
+function hideLodaer(){
+  setTimeout(() => {
+    const el = document.getElementById('loader');
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 450);
+  }, 350);
+}
+
+/* ════ MAP ════ */
+function initMap(){
+  map = L.map('map', {zoomControl:false, attributionControl:false})
+          .setView([40.748, -73.985], 12);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19}).addTo(map);
+  L.control.zoom({position:'bottomright'}).addTo(map);
+  L.control.attribution({position:'bottomright', prefix:'© OpenStreetMap'}).addTo(map);
+}
+
+/* ════ FETCH ════ */
+async function loadMeta(){
+  const r = await fetch('/api/meta'); metaData = await r.json();
+}
+async function loadSegments(){
+  const r = await fetch('/api/segments'); allSegs = await r.json();
+}
+
+/* ════ DRAW SEGMENTS
+     Polylines GPS directement du CSV → alignement parfait sur carte
+════ */
+function drawAllSegments(){
+  // clear all
+  Object.values(layers).forEach(l => map.removeLayer(l));
+  layers = {};
+
+  allSegs.forEach(seg => {
+    const latlngs = seg.pts.map(p => [p[0], p[1]]);   // [lat, lng] from CSV
+    const isCrit  = seg.status === 'critical';
+    const isHidden = (activeFilter !== 'all' && seg.status !== activeFilter);
+
+    const pl = L.polyline(latlngs, {
+      color:      seg.color,
+      weight:     seg.weight,
+      opacity:    isHidden ? 0 : (isCrit ? 0.95 : 0.82),
+      lineCap:    'round',
+      lineJoin:   'round',
+      dashArray:  isCrit ? '1,0' : null,
+    });
+
+    pl.bindTooltip(buildTooltip(seg), {sticky:true, opacity:1, direction:'top'});
+
+    pl.on('click', () => {
+      selectSeg(seg);
+    });
+
+    pl.on('mouseover', function(){
+      if(!isHidden) this.setStyle({weight: seg.weight + 2, opacity: 1});
+    });
+    pl.on('mouseout', function(){
+      if(activeSeg?.id !== seg.id)
+        this.setStyle({weight: seg.weight, opacity: isHidden ? 0 : (isCrit ? .95 : .82)});
+    });
+
+    pl.addTo(map);
+    layers[seg.id] = pl;
+  });
+}
+
+function buildTooltip(s){
+  const ttMin  = fmtTT(s.min_tt);
+  const ttAvg  = fmtTT(s.avg_tt);
+  const ttMax  = fmtTT(s.max_tt);
+  const ttP10  = fmtTT(s.p10_tt);
+  const ttP90  = fmtTT(s.p90_tt);
+  const col    = s.color;
+  const sLabel = STATUS_FR[s.status] || s.status;
+  return `<div style="min-width:260px">
+<div style="font-family:'Barlow Condensed',sans-serif;font-weight:800;font-size:15px;letter-spacing:.5px;color:${col};margin-bottom:2px;line-height:1.2">${s.name}</div>
+<div style="font-size:7px;letter-spacing:2px;text-transform:uppercase;color:#4a607a;margin-bottom:9px">${s.n_pts} points GPS · ${s.n_samples} mesures</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:9px;line-height:2">
+  <div><span style="color:#4a607a">Statut    </span>  <b style="color:${col}">${sLabel}</b></div>
+  <div><span style="color:#4a607a">Vitesse   </span>  <b>${s.avg_speed} mph</b></div>
+  <div><span style="color:#4a607a">TT moyen  </span>  <b style="color:${col}">${ttAvg}</b></div>
+  <div><span style="color:#4a607a">TT min    </span>  <b>${ttMin}</b></div>
+  <div><span style="color:#4a607a">TT p10    </span>  <b>${ttP10}</b></div>
+  <div><span style="color:#4a607a">TT p90    </span>  <b>${ttP90}</b></div>
+  <div><span style="color:#4a607a">TT max    </span>  <b style="color:#ff3b3b">${ttMax}</b></div>
+</div></div>`;
+}
+
+function fmtTT(s){
+  if(!s) return '—';
+  if(s < 60)  return `${Math.round(s)}s`;
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return sec > 0 ? `${m}m${sec}s` : `${m}m`;
+}
+
+function applyFilter(){
+  Object.values(layers).forEach(l => map.removeLayer(l));
+  allSegs.forEach(seg => {
+    const pl = layers[seg.id];
+    if(!pl) return;
+    const hidden = (activeFilter !== 'all' && seg.status !== activeFilter);
+    pl.setStyle({opacity: hidden ? 0 : (seg.status==='critical'?.95:.82)});
+    if(hidden) pl.getElement()?.style && (pl.getElement().style.pointerEvents='none');
+    else       pl.getElement()?.style && (pl.getElement().style.pointerEvents='');
+    pl.addTo(map);
+  });
+}
+
+/* ════ SELECT ════ */
+function selectSeg(seg){
+  // reset previous highlight
+  if(activeSeg){
+    const prev = layers[activeSeg.id];
+    if(prev) prev.setStyle({weight:activeSeg.weight, color:activeSeg.color, opacity:activeSeg.status==='critical'?.95:.82});
+  }
+  activeSeg = seg;
+  const pl = layers[seg.id];
+  if(pl){
+    pl.setStyle({weight: seg.weight+3, opacity:1, color:'#ffffff'});
+    pl.bringToFront();
+    // fly to segment
+    const lats=seg.pts.map(p=>p[0]), lngs=seg.pts.map(p=>p[1]);
+    map.flyToBounds([[Math.min(...lats),Math.min(...lngs)],[Math.max(...lats),Math.max(...lngs)]],{padding:[80,80],duration:.7});
+  }
+  renderDetail(seg);
+  // highlight list item
+  document.querySelectorAll('.sl-item').forEach(el=>{
+    el.classList.toggle('active', el.dataset.id===seg.id);
+  });
+}
+
+/* ════ THRESHOLD CARDS ════ */
+function buildThresholdCards(){
+  const counts = {};
+  allSegs.forEach(s => counts[s.status] = (counts[s.status]||0)+1);
+  const cards = [
+    {s:'free',    label:'Fluide',   range:'< 200s'},
+    {s:'normal',  label:'Normal',   range:'200–400s'},
+    {s:'slow',    label:'Lent',     range:'400–700s'},
+    {s:'heavy',   label:'Chargé',   range:'700–1200s'},
+    {s:'critical',label:'Critique', range:'> 1200s'},
+  ];
+  document.getElementById('threshold-cards').innerHTML = cards.map(c=>`
+    <div class="tc ${c.s}" data-s="${c.s}" onclick="clickCard(this,'${c.s}')">
+      <div class="tc-label"><div class="tc-dot" style="background:${STATUS_COLORS[c.s]}"></div>${c.label}</div>
+      <div class="tc-val">${counts[c.s]||0}</div>
+      <div class="tc-range">${c.range}</div>
+    </div>`).join('');
+}
+
+function clickCard(el, status){
+  const newFilter = (activeFilter === status) ? 'all' : status;
+  setFilter(newFilter);
+}
+
+function setFilter(f){
+  activeFilter = f;
+  // update topbar buttons
+  document.querySelectorAll('#filter-btns .fb').forEach(b=>{
+    b.classList.toggle('on', b.dataset.s === f || (f==='all' && b.dataset.s==='all'));
+  });
+  // update cards
+  document.querySelectorAll('.tc').forEach(c=>{
+    c.classList.toggle('dimmed', f !== 'all' && c.dataset.s !== f);
+  });
+  applyFilter();
+  renderList();
+}
+
+/* ════ SEGMENT LIST ════ */
+function renderList(){
+  const sortKey = document.getElementById('sort-sel').value;
+  let segs = activeFilter === 'all' ? [...allSegs] : allSegs.filter(s=>s.status===activeFilter);
+
+  segs.sort((a,b) => {
+    if(sortKey==='tt_asc')    return a.avg_tt  - b.avg_tt;
+    if(sortKey==='tt_desc')   return b.avg_tt  - a.avg_tt;
+    if(sortKey==='speed_desc')return b.avg_speed - a.avg_speed;
+    if(sortKey==='name_asc')  return a.name.localeCompare(b.name);
+    return 0;
+  });
+
+  const maxTT = Math.max(...segs.map(s=>s.avg_tt), 1);
+  document.getElementById('list-count').textContent = segs.length;
+  document.getElementById('seg-list').innerHTML = segs.map(s => `
+    <div class="sl-item${activeSeg?.id===s.id?' active':''}" data-id="${s.id}" onclick="selectSeg(allSegs.find(x=>x.id==='${s.id}'))">
+      <div class="sl-dot" style="background:${s.color}"></div>
+      <div>
+        <div class="sl-name">${s.name.substring(0,38)}</div>
+        <div class="sl-sub">
+          <span>${s.n_pts} pts</span>
+          <span>${s.avg_speed} mph</span>
+          <span>${s.n_samples} mesures</span>
+        </div>
+      </div>
+      <div class="sl-right">
+        <div class="sl-tt" style="color:${s.color}">${fmtTT(s.avg_tt)}</div>
+        <div class="sl-status" style="color:${s.color}">${STATUS_FR[s.status]}</div>
+      </div>
+      <div class="sl-bar-row"><div class="sl-bar-fill" style="width:${(s.avg_tt/maxTT*100).toFixed(0)}%;background:${s.color}55;border-right:2px solid ${s.color}"></div></div>
+    </div>`).join('');
+}
+
+/* ════ DETAIL PANEL ════ */
+function renderDetail(s){
+  const col   = s.color;
+  const maxGlobal = Math.max(...allSegs.map(x=>x.max_tt), 1);
+  const metrics = [
+    {l:'Travel Time Moyen', v:fmtTT(s.avg_tt),   p:s.avg_tt/maxGlobal,   c:col},
+    {l:'TT Minimum',         v:fmtTT(s.min_tt),   p:s.min_tt/maxGlobal,   c:'var(--free)'},
+    {l:'TT Percentile 10%',  v:fmtTT(s.p10_tt),   p:s.p10_tt/maxGlobal,   c:'var(--normal)'},
+    {l:'TT Percentile 90%',  v:fmtTT(s.p90_tt),   p:s.p90_tt/maxGlobal,   c:'var(--slow)'},
+    {l:'TT Maximum',         v:fmtTT(s.max_tt),   p:s.max_tt/maxGlobal,   c:'var(--critical)'},
+    {l:'Vitesse Moyenne',    v:s.avg_speed+' mph', p:Math.min(s.avg_speed/60,1), c:'var(--acc)'},
+    {l:'Points GPS',         v:s.n_pts,            p:s.n_pts/20,           c:'var(--sub)'},
+    {l:'Nb Mesures',         v:s.n_samples,        p:Math.min(s.n_samples/5000,1), c:'var(--sub)'},
+  ];
+
+  // TT range bar relative to thresholds
+  const pct = v => Math.min(v/3000*100, 100).toFixed(1);
+
+  document.getElementById('det').innerHTML =
+    `<div class="dh">
+      <div class="d-name">${s.name}</div>
+      <div class="d-tags">
+        <span class="tag" style="color:${col};border-color:${col}44">${STATUS_FR[s.status]}</span>
+        <span class="tag a">${fmtTT(s.avg_tt)} avg</span>
+        <span class="tag">${s.avg_speed} mph</span>
+        <span class="tag">${s.n_pts} pts GPS</span>
+      </div>
+    </div>
+    <div class="tt-histo">
+      <div class="tt-h-title">Plage Travel Time</div>
+      <div class="tt-range-bar">
+        <div class="tt-range-fill" style="left:${pct(s.min_tt)}%;right:${(100-pct(s.max_tt)).toFixed(1)}%;background:${col}55;border-left:2px solid var(--free);border-right:2px solid var(--critical)"></div>
+        <div class="tt-range-fill" style="left:${pct(s.p10_tt)}%;right:${(100-pct(s.p90_tt)).toFixed(1)}%;background:${col}88;"></div>
+        <div style="position:absolute;top:0;bottom:0;left:${pct(s.avg_tt)}%;width:2px;background:${col}"></div>
+      </div>
+      <div class="tt-range-labels">
+        <span>min ${fmtTT(s.min_tt)}</span>
+        <span style="color:${col}">▲ ${fmtTT(s.avg_tt)}</span>
+        <span>max ${fmtTT(s.max_tt)}</span>
+      </div>
+    </div>
+    ${metrics.map(m=>`
+    <div class="d-metric"><div class="dm-l">${m.l}</div><div class="dm-v" style="color:${m.c}">${m.v}</div></div>
+    <div class="d-bar"><div class="d-bar-f" style="width:${Math.min(m.p*100,100)}%;background:${m.c};opacity:.35;border-right:2px solid ${m.c}"></div></div>
+    `).join('')}`;
+}
+
+/* ════ KPIs ════ */
+function updateKPIs(){
+  document.getElementById('kv-total').textContent = allSegs.length;
+  document.getElementById('kv-crit').textContent  = allSegs.filter(s=>s.status==='critical').length;
+  document.getElementById('kv-free').textContent  = allSegs.filter(s=>s.status==='free').length;
+  const avgTT = allSegs.reduce((a,s)=>a+s.avg_tt,0)/allSegs.length;
+  document.getElementById('kv-tt').textContent = fmtTT(Math.round(avgTT));
+  document.getElementById('mb-sub').textContent =
+    `${allSegs.length} segments · ${allSegs.filter(s=>s.status==='critical').length} critiques · NYC DOT`;
+}
+
+/* ════ CHARTS ════ */
+function buildCharts(){
+  const counts = {};
+  const colors = [];
+  allSegs.forEach(s=>{counts[s.status]=(counts[s.status]||0)+1});
+  const order = ['free','normal','slow','heavy','critical'];
+  const labels = order.map(s=>STATUS_FR[s]);
+  const data   = order.map(s=>counts[s]||0);
+  const bcolors= order.map(s=>STATUS_COLORS[s]);
+
+  if(pieChart) pieChart.destroy();
+  pieChart = new Chart(document.getElementById('pie-chart').getContext('2d'),{
+    type:'doughnut',
+    data:{
+      labels,
+      datasets:[{
+        data,
+        backgroundColor: bcolors.map(c=>c.replace('var(--','').replace(')','').replace(/-/g,'_')).map((_,i)=>{
+          // resolve CSS vars manually
+          const vals=['#22d07a','#a3e635','#f5c518','#ff7a2b','#ff3b3b'];
+          return vals[i]+'44';
+        }),
+        borderColor: ['#22d07a','#a3e635','#f5c518','#ff7a2b','#ff3b3b'],
+        borderWidth: 1,
+      }]
+    },
+    options:{
+      cutout:'60%',
+      plugins:{
+        legend:{display:true,position:'right',labels:{
+          color:'#4a607a',font:{family:"'IBM Plex Mono'",size:8},boxWidth:8,padding:6
+        }}
+      }
+    }
+  });
+
+  // bar chart: avg TT per segment
+  const sorted = [...allSegs].sort((a,b)=>b.avg_tt-a.avg_tt);
+  if(barChart) barChart.destroy();
+  barChart = new Chart(document.getElementById('bar-chart').getContext('2d'),{
+    type:'bar',
+    data:{
+      labels: sorted.map(s=>s.name.split(' ').slice(0,3).join(' ')),
+      datasets:[{
+        data:  sorted.map(s=>Math.round(s.avg_tt)),
+        backgroundColor: sorted.map(s=>{
+          const m={'free':'#22d07a','normal':'#a3e635','slow':'#f5c518','heavy':'#ff7a2b','critical':'#ff3b3b'};
+          return (m[s.status]||'#3ecfff')+'55';
+        }),
+        borderColor: sorted.map(s=>{
+          const m={'free':'#22d07a','normal':'#a3e635','slow':'#f5c518','heavy':'#ff7a2b','critical':'#ff3b3b'};
+          return m[s.status]||'#3ecfff';
+        }),
+        borderWidth:1, borderRadius:2,
+      }]
+    },
+    options:{
+      indexAxis:'y',
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{color:'#4a607a',font:{family:"'IBM Plex Mono'",size:7}},grid:{color:'#1d2840'},title:{display:true,text:'secondes',color:'#4a607a',font:{size:7}}},
+        y:{ticks:{color:'#4a607a',font:{family:"'IBM Plex Mono'",size:7}},grid:{display:false}},
+      }
+    }
+  });
+}
+
+/* ════ EVENTS ════ */
+document.getElementById('filter-btns').addEventListener('click', e=>{
+  const btn = e.target.closest('.fb'); if(!btn) return;
+  setFilter(btn.dataset.s);
+});
+document.getElementById('sort-sel').addEventListener('change', renderList);
+</script>
+</body>
+</html>
